@@ -1,0 +1,579 @@
+<html>
+
+<head>
+    <title>産総研 シームレス標高タイル（統合DEM）+赤色立体地図・陰陽図（東京都）</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src='https://unpkg.com/maplibre-gl@3.4.1/dist/maplibre-gl.js'></script>
+    <link href='https://unpkg.com/maplibre-gl@3.4.1/dist/maplibre-gl.css' rel='stylesheet' />
+    <script src="https://unpkg.com/pmtiles@2.10.0/dist/index.js"></script>
+    <style>
+        body {
+            margin: 0;
+        }
+
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+
+        .map-overlay {
+            font: bold 12px/20px 'Helvetica Neue', Arial, Helvetica, sans-serif;
+            position: absolute;
+            width: 200px;
+            bottom: 20px;
+            left: 0;
+            padding: 10px;
+        }
+
+        .map-overlay .map-overlay-inner {
+            background-color: #fff;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+            border-radius: 3px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        .map-overlay label {
+            display: block;
+            margin: 0 0 0px;
+            font-size: 12px;
+            top: 100px;
+            left: 10px;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .map-overlay input {
+            background-color: transparent;
+            display: inline-block;
+            width: 100%;
+            position: relative;
+            margin: 0;
+            cursor: ew-resize;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+    <div class="map-overlay top">
+        <div class="map-overlay-inner">
+            <label>赤色立体地図 不透明度: <span id="red-relief-slider-opacity-value">100%</span></label>
+            <input id="red-relief-slider-opacity" type="range" min="0" max="100" step="1" value="100">
+            <label>陰陽図 不透明度: <span id="inyou-slider-opacity-value">0%</span></label>
+            <input id="inyou-slider-opacity" type="range" min="0" max="100" step="1" value="0">
+        </div>
+    </div>
+    <script type="module">
+        // Terrain-RGB形式への変換モジュール
+        import { makeNumPngProtocol } from './numPngProtocol.js'
+
+        // protocolを設定
+        let protocol = new pmtiles.Protocol();
+        maplibregl.addProtocol("pmtiles", protocol.tile);
+
+        // マップの初期化
+        const map = new maplibregl.Map({
+            container: 'map',
+            style: 'std.json',
+            zoom: 14.97,
+            minZoom: 1,
+            maxZoom: 23,
+            pitch: 57,
+            bearing: 12,
+            maxPitch: 85,
+            center: [139.76614, 32.45048],
+            hash: true,
+            attributionControl: false
+        });
+
+        // ズーム・回転
+        map.addControl(new maplibregl.NavigationControl());
+
+        // フルスクリーンモードのオンオフ
+        map.addControl(new maplibregl.FullscreenControl());
+
+        // 現在位置表示
+        map.addControl(new maplibregl.GeolocateControl({
+            positionOptions: {
+                enableHighAccuracy: false
+            },
+            fitBoundsOptions: { maxZoom: 18 },
+            trackUserLocation: true,
+            showUserLocation: true
+        }));
+
+        // スケール表示
+        map.addControl(new maplibregl.ScaleControl({
+            maxWidth: 200,
+            unit: 'metric'
+        }));
+
+        // Attributionを折りたたみ表示
+        map.addControl(new maplibregl.AttributionControl({
+            compact: true,
+            customAttribution: '（<a href="https://twitter.com/shi__works" target="_blank">Twitter</a> | <a href="https://github.com/shi-works/aist-dem-with-sekishoku-and-inyou-on-maplibre-gl-js" target="_blank">Github</a>） '
+        }));
+
+        // 3D地形コントロール
+        map.addControl(
+            new maplibregl.TerrainControl({
+                source: 'aist-dem',
+                exaggeration: 1 // 標高を強調する倍率
+            })
+        );
+
+        map.on('load', () => {
+            // 産総研 シームレス標高タイルソース
+            map.addSource("aist-dem", {
+                type: 'raster-dem',
+                tiles: [
+                    'numpng://tiles.gsj.jp/tiles/elev/mixed/{z}/{y}/{x}.png',
+                ],
+                attribution: '<a href="https://tiles.gsj.jp/tiles/elev/tiles.html" target="_blank">産業技術総合研究所 シームレス標高タイル(統合DEM)</a>',
+                tileSize: 256
+            });
+
+            map.setTerrain({ 'source': 'aist-dem', 'exaggeration': 1 });
+
+            // 赤色立体地図（多摩地域）ソース
+            map.addSource("tama-sekisyoku", {
+                type: 'raster',
+                tiles: [
+                    'https://kenzkenz2.xsrv.jp/tokyo/tamasekisyoku/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://catalog.data.metro.tokyo.lg.jp/dataset/t000029d0000000020" target="_blank">東京都デジタルツイン 多摩地域点群データ（赤色立体地図・陰陽図）</a>',
+                tileSize: 256,
+                scheme: "tms"
+            });
+
+            // 赤色立体地図（多摩地域）レイヤ
+            map.addLayer({
+                id: 'tama-sekisyoku-tiles',
+                type: 'raster',
+                source: 'tama-sekisyoku',
+                minzoom: 1,
+                maxzoom: 23,
+                'layout': {
+                    'visibility': 'visible'
+                }
+            });
+
+            // 赤色立体地図（島しょ地域）ソース
+            map.addSource("tousyo-sekisyoku-01", {
+                type: 'raster',
+                tiles: [
+                    'https://kenzkenz2.xsrv.jp/tokyo/tousyosekisyoku01/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://catalog.data.metro.tokyo.lg.jp/dataset/t000029d0000000019" target="_blank">東京都デジタルツイン 島しょ地域点群データ（赤色立体地図・陰陽図）</a>',
+                tileSize: 256,
+                scheme: "tms"
+            });
+
+            // 赤色立体地図（島しょ地域）レイヤ
+            map.addLayer({
+                id: 'tousyo-sekisyoku-01-tiles',
+                type: 'raster',
+                source: 'tousyo-sekisyoku-01',
+                minzoom: 1,
+                maxzoom: 23,
+                'layout': {
+                    'visibility': 'visible'
+                }
+            });
+
+            // 赤色立体地図（島しょ地域）ソース
+            map.addSource("tousyo-sekisyoku-02", {
+                type: 'raster',
+                tiles: [
+                    'https://kenzkenz2.xsrv.jp/tokyo/tousyosekisyoku02/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://catalog.data.metro.tokyo.lg.jp/dataset/t000029d0000000019" target="_blank">東京都デジタルツイン 島しょ地域点群データ（赤色立体地図・陰陽図）</a>',
+                tileSize: 256,
+                scheme: "tms"
+            });
+
+            // 赤色立体地図（島しょ地域）レイヤ
+            map.addLayer({
+                id: 'tousyo-sekisyoku-02-tiles',
+                type: 'raster',
+                source: 'tousyo-sekisyoku-02',
+                minzoom: 1,
+                maxzoom: 23,
+                'layout': {
+                    'visibility': 'visible'
+                }
+            });
+
+            // 赤色立体地図（島しょ地域）ソース
+            map.addSource("tousyo-sekisyoku-03", {
+                type: 'raster',
+                tiles: [
+                    'https://kenzkenz2.xsrv.jp/tokyo/tousyosekisyoku03/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://catalog.data.metro.tokyo.lg.jp/dataset/t000029d0000000019" target="_blank">東京都デジタルツイン 島しょ地域点群データ（赤色立体地図・陰陽図）</a>',
+                tileSize: 256,
+                scheme: "tms"
+            });
+
+            // 赤色立体地図（島しょ地域）レイヤ
+            map.addLayer({
+                id: 'tousyo-sekisyoku-03-tiles',
+                type: 'raster',
+                source: 'tousyo-sekisyoku-03',
+                minzoom: 1,
+                maxzoom: 23,
+                'layout': {
+                    'visibility': 'visible'
+                }
+            });
+
+            // 赤色立体地図（島しょ地域）ソース
+            map.addSource("tousyo-sekisyoku-04", {
+                type: 'raster',
+                tiles: [
+                    'https://kenzkenz2.xsrv.jp/tokyo/tousyosekisyoku04/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://catalog.data.metro.tokyo.lg.jp/dataset/t000029d0000000019" target="_blank">東京都デジタルツイン 島しょ地域点群データ（赤色立体地図・陰陽図）</a>',
+                tileSize: 256,
+                scheme: "tms"
+            });
+
+            // 赤色立体地図（島しょ地域）レイヤ
+            map.addLayer({
+                id: 'tousyo-sekisyoku-04-tiles',
+                type: 'raster',
+                source: 'tousyo-sekisyoku-04',
+                minzoom: 1,
+                maxzoom: 23,
+                'layout': {
+                    'visibility': 'visible'
+                }
+            });
+
+            // 赤色立体地図（島しょ地域）ソース
+            map.addSource("tousyo-sekisyoku-05", {
+                type: 'raster',
+                tiles: [
+                    'https://kenzkenz2.xsrv.jp/tokyo/tousyosekisyoku05/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://catalog.data.metro.tokyo.lg.jp/dataset/t000029d0000000019" target="_blank">東京都デジタルツイン 島しょ地域点群データ（赤色立体地図・陰陽図）</a>',
+                tileSize: 256,
+                scheme: "tms"
+            });
+
+            // 赤色立体地図（島しょ地域）レイヤ
+            map.addLayer({
+                id: 'tousyo-sekisyoku-05-tiles',
+                type: 'raster',
+                source: 'tousyo-sekisyoku-05',
+                minzoom: 1,
+                maxzoom: 23,
+                'layout': {
+                    'visibility': 'visible'
+                }
+            });
+
+            // 赤色立体地図（島しょ地域）ソース
+            map.addSource("tousyo-sekisyoku-06", {
+                type: 'raster',
+                tiles: [
+                    'https://kenzkenz2.xsrv.jp/tokyo/tousyosekisyoku06/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://catalog.data.metro.tokyo.lg.jp/dataset/t000029d0000000019" target="_blank">東京都デジタルツイン 島しょ地域点群データ（赤色立体地図・陰陽図）</a>',
+                tileSize: 256,
+                scheme: "tms"
+            });
+
+            // 赤色立体地図（島しょ地域）レイヤ
+            map.addLayer({
+                id: 'tousyo-sekisyoku-06-tiles',
+                type: 'raster',
+                source: 'tousyo-sekisyoku-06',
+                minzoom: 1,
+                maxzoom: 23,
+                'layout': {
+                    'visibility': 'visible'
+                }
+            });
+
+            // 赤色立体地図の不透明度をスライダーで制御
+            const red_relief_sliderOpactiy = document.getElementById('red-relief-slider-opacity');
+            const red_relief_sliderOpactiyValue = document.getElementById('red-relief-slider-opacity-value');
+
+            red_relief_sliderOpactiy.addEventListener('input', (e) => {
+                map.setPaintProperty(
+                    'tama-sekisyoku-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                map.setPaintProperty(
+                    'tousyo-sekisyoku-01-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                map.setPaintProperty(
+                    'tousyo-sekisyoku-02-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                map.setPaintProperty(
+                    'tousyo-sekisyoku-03-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                map.setPaintProperty(
+                    'tousyo-sekisyoku-04-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                map.setPaintProperty(
+                    'tousyo-sekisyoku-05-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                map.setPaintProperty(
+                    'tousyo-sekisyoku-06-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                red_relief_sliderOpactiyValue.textContent = e.target.value + '%';
+            });
+
+            // 陰陽図（多摩地域）ソース
+            map.addSource("tama-inyou", {
+                type: 'raster',
+                tiles: [
+                    'https://kenzkenz2.xsrv.jp/tokyo/tamainyou/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://catalog.data.metro.tokyo.lg.jp/dataset/t000029d0000000020" target="_blank">東京都デジタルツイン 多摩地域点群データ（赤色立体地図・陰陽図）</a>',
+                tileSize: 256,
+                scheme: "tms"
+            });
+
+            // 陰陽図（多摩地域）レイヤ
+            map.addLayer({
+                id: 'tama-inyou-tiles',
+                type: 'raster',
+                source: 'tama-inyou',
+                minzoom: 1,
+                maxzoom: 23,
+                'layout': {
+                    'visibility': 'visible'
+                },
+                'paint': {
+                    'raster-opacity': 0
+                }
+            });
+
+            // 陰陽図（島しょ地域）ソース
+            map.addSource("tousyo-inyou-01", {
+                type: 'raster',
+                tiles: [
+                    'https://kenzkenz2.xsrv.jp/tokyo/tousyoinyou01/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://catalog.data.metro.tokyo.lg.jp/dataset/t000029d0000000019" target="_blank">東京都デジタルツイン 島しょ地域点群データ（赤色立体地図・陰陽図）</a>',
+                tileSize: 256,
+                scheme: "tms"
+            });
+
+            // 陰陽図（島しょ地域）レイヤ
+            map.addLayer({
+                id: 'tousyo-inyou-01-tiles',
+                type: 'raster',
+                source: 'tousyo-inyou-01',
+                minzoom: 1,
+                maxzoom: 23,
+                'layout': {
+                    'visibility': 'visible'
+                },
+                'paint': {
+                    'raster-opacity': 0
+                }
+            });
+
+            // 陰陽図（島しょ地域）ソース
+            map.addSource("tousyo-inyou-02", {
+                type: 'raster',
+                tiles: [
+                    'https://kenzkenz2.xsrv.jp/tokyo/tousyoinyou02/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://catalog.data.metro.tokyo.lg.jp/dataset/t000029d0000000019" target="_blank">東京都デジタルツイン 島しょ地域点群データ（赤色立体地図・陰陽図）</a>',
+                tileSize: 256,
+                scheme: "tms"
+            });
+
+            // 陰陽図（島しょ地域）レイヤ
+            map.addLayer({
+                id: 'tousyo-inyou-02-tiles',
+                type: 'raster',
+                source: 'tousyo-inyou-02',
+                minzoom: 1,
+                maxzoom: 23,
+                'layout': {
+                    'visibility': 'visible'
+                },
+                'paint': {
+                    'raster-opacity': 0
+                }
+            });
+
+            // 陰陽図（島しょ地域）ソース
+            map.addSource("tousyo-inyou-03", {
+                type: 'raster',
+                tiles: [
+                    'https://kenzkenz2.xsrv.jp/tokyo/tousyoinyou03/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://catalog.data.metro.tokyo.lg.jp/dataset/t000029d0000000019" target="_blank">東京都デジタルツイン 島しょ地域点群データ（赤色立体地図・陰陽図）</a>',
+                tileSize: 256,
+                scheme: "tms"
+            });
+
+            // 陰陽図（島しょ地域）レイヤ
+            map.addLayer({
+                id: 'tousyo-inyou-03-tiles',
+                type: 'raster',
+                source: 'tousyo-inyou-03',
+                minzoom: 1,
+                maxzoom: 23,
+                'layout': {
+                    'visibility': 'visible'
+                },
+                'paint': {
+                    'raster-opacity': 0
+                }
+            });
+
+            // 陰陽図（島しょ地域）ソース
+            map.addSource("tousyo-inyou-04", {
+                type: 'raster',
+                tiles: [
+                    'https://kenzkenz2.xsrv.jp/tokyo/tousyoinyou04/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://catalog.data.metro.tokyo.lg.jp/dataset/t000029d0000000019" target="_blank">東京都デジタルツイン 島しょ地域点群データ（赤色立体地図・陰陽図）</a>',
+                tileSize: 256,
+                scheme: "tms"
+            });
+
+            // 陰陽図（島しょ地域）レイヤ
+            map.addLayer({
+                id: 'tousyo-inyou-04-tiles',
+                type: 'raster',
+                source: 'tousyo-inyou-04',
+                minzoom: 1,
+                maxzoom: 23,
+                'layout': {
+                    'visibility': 'visible'
+                },
+                'paint': {
+                    'raster-opacity': 0
+                }
+            });
+
+            // 陰陽図（島しょ地域）ソース
+            map.addSource("tousyo-inyou-05", {
+                type: 'raster',
+                tiles: [
+                    'https://kenzkenz2.xsrv.jp/tokyo/tousyoinyou05/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://catalog.data.metro.tokyo.lg.jp/dataset/t000029d0000000019" target="_blank">東京都デジタルツイン 島しょ地域点群データ（赤色立体地図・陰陽図）</a>',
+                tileSize: 256,
+                scheme: "tms"
+            });
+
+            // 陰陽図（島しょ地域）レイヤ
+            map.addLayer({
+                id: 'tousyo-inyou-05-tiles',
+                type: 'raster',
+                source: 'tousyo-inyou-05',
+                minzoom: 1,
+                maxzoom: 23,
+                'layout': {
+                    'visibility': 'visible'
+                },
+                'paint': {
+                    'raster-opacity': 0
+                }
+            });
+
+            // 陰陽図（島しょ地域）ソース
+            map.addSource("tousyo-inyou-06", {
+                type: 'raster',
+                tiles: [
+                    'https://kenzkenz2.xsrv.jp/tokyo/tousyoinyou06/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://catalog.data.metro.tokyo.lg.jp/dataset/t000029d0000000019" target="_blank">東京都デジタルツイン 島しょ地域点群データ（赤色立体地図・陰陽図）</a>',
+                tileSize: 256,
+                scheme: "tms"
+            });
+
+            // 陰陽図（島しょ地域）レイヤ
+            map.addLayer({
+                id: 'tousyo-inyou-06-tiles',
+                type: 'raster',
+                source: 'tousyo-inyou-06',
+                minzoom: 1,
+                maxzoom: 23,
+                'layout': {
+                    'visibility': 'visible'
+                },
+                'paint': {
+                    'raster-opacity': 0
+                }
+            });
+
+            // 陰陽図の不透明度をスライダーで制御
+            const inyou_sliderOpactiy = document.getElementById('inyou-slider-opacity');
+            const inyou_sliderOpactiyValue = document.getElementById('inyou-slider-opacity-value');
+
+            inyou_sliderOpactiy.addEventListener('input', (e) => {
+                map.setPaintProperty(
+                    'tama-inyou-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                map.setPaintProperty(
+                    'tousyo-inyou-01-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                map.setPaintProperty(
+                    'tousyo-inyou-02-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                map.setPaintProperty(
+                    'tousyo-inyou-03-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                map.setPaintProperty(
+                    'tousyo-inyou-04-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                map.setPaintProperty(
+                    'tousyo-inyou-05-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                map.setPaintProperty(
+                    'tousyo-inyou-06-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                inyou_sliderOpactiyValue.textContent = e.target.value + '%';
+            });
+
+
+            map.showTileBoundaries = false;
+
+        })
+
+        maplibregl.addProtocol('numpng', makeNumPngProtocol());
+
+    </script>
+</body>
+
+</html>
